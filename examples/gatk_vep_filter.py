@@ -1,7 +1,7 @@
 vep_csq_desc_prefix = "Consequence annotations from Ensembl VEP. Format: "
 csq_format_keys = None
 
-important_genes = set(['MSH2', 'MSH2', 'MSH6', 'MLH1', 'PMS2', 'MSH4', 'MUTYH', 'EXO1', 'PMS1', 'MSH3', 'MSH5', 'PMS2P3', 'POLE', 'MLH3', 'FAN1', 'POLD1', 'NTHL1', 'RNF43', 'APC', 'BRCA1', 'BRCA2'])
+important_genes = set(['MSH2', 'MSH2', 'MSH6', 'MLH1', 'PMS2', 'MSH4', 'MUTYH', 'EXO1', 'PMS1', 'MSH3', 'MSH5', 'PMS2P3', 'POLE', 'MLH3', 'FAN1', 'POLD1', 'NTHL1', 'RNF43', 'APC', 'BRCA1', 'BRCA2', 'AXIN2'])
 
 
 def parse_gt(text):

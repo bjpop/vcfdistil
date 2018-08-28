@@ -61,11 +61,10 @@ def parse_args():
                         metavar='FILTER',
                         type=str,
                         help='file name of Python filter code')
-    parser.add_argument('vcf_files',
-                        nargs='*',
+    parser.add_argument('vcf_file',
                         metavar='VCF_FILE',
                         type=str,
-                        help='Input VCF files')
+                        help='Input VCF file')
     return parser.parse_args()
 
 
@@ -184,27 +183,30 @@ def process_variants(file):
             yield Record(chrom, pos, id, ref, alt, qual, filter, info, format, genotypes)
 
 
-def process_vcf_file(file, record_filter):
+def process_vcf_file(file, begin, end, record_filter):
     metadata_iter, header_iter, variants_iter = tee(file, 3)
     metadata, num_metadata_rows = read_metadata(metadata_iter)
     sample_ids = read_header(islice(header_iter, num_metadata_rows, None, None))
+    for item in begin(metadata, sample_ids):
+        print(item)
     for record in process_variants(islice(variants_iter, num_metadata_rows + 1, None, None)):
-        for filtered_record in record_filter(metadata, sample_ids, record):
+        for filtered_record in record_filter(record, metadata, sample_ids):
             print(filtered_record)
+    for item in end(metadata, sample_ids):
+        print(item)
 
 
-def process_files(options, record_filter):
+def process_file(options, begin, end, record_filter):
     '''
     '''
-    for vcf_filename in options.vcf_files:
-        logging.info("Processing VCF file from %s", vcf_filename)
-        try:
-            vcf_file = open(vcf_filename)
-        except IOError as exception:
-            exit_with_error(str(exception), EXIT_FILE_IO_ERROR)
-        else:
-            with vcf_file:
-                process_vcf_file(vcf_file, record_filter)
+    logging.info("Processing VCF file from %s", options.vcf_file)
+    try:
+        vcf_file = open(options.vcf_file)
+    except IOError as exception:
+        exit_with_error(str(exception), EXIT_FILE_IO_ERROR)
+    else:
+        with vcf_file:
+            process_vcf_file(vcf_file, begin, end, record_filter)
 
 
 def init_logging(log_filename):
@@ -229,16 +231,26 @@ def init_logging(log_filename):
         logging.info('command line: %s', ' '.join(sys.argv))
 
 
-def identity_filter(_metadata, _sample_ids, x):
+def identity_filter(x, _metadata, _sample_ids):
     yield x
 
 
-def get_custom_filter(options):
+def null_begin(_metadata, _sample_ids):
+    return None
+
+
+def null_end(_metadata, _sample_ids):
+    return None
+
+
+def get_custom_functions(options):
     # default filter is the identity function,
     # will include all rows in the output
     # WARNING: this code execs arbitrary Python code. Do not use this in
     # an untrusted environment, such as a web application!
     custom_filter = identity_filter 
+    custom_begin = null_begin
+    custom_end = null_end
     if options.filter:
         try:
             with open(options.filter) as custom_filter_file:
@@ -247,18 +259,22 @@ def get_custom_filter(options):
                 exec(contents, globals(), this_locals)
                 if 'filter' in this_locals:
                     custom_filter = this_locals['filter']
+                if 'begin' in this_locals:
+                    custom_begin = this_locals['begin']
+                if 'end' in this_locals:
+                    custom_end = this_locals['end']
         except Exception as e:
             print("Error when loading custom filter: {}".format(e))
             exit(1)
-    return custom_filter
+    return custom_begin, custom_end, custom_filter
 
 
 def main():
     "Orchestrate the execution of the program"
     options = parse_args()
-    record_filter = get_custom_filter(options)
+    begin, end, record_filter = get_custom_functions(options)
     init_logging(options.log)
-    process_files(options, record_filter)
+    process_file(options, begin, end, record_filter)
 
 
 # If this script is run from the command line then call the main function.

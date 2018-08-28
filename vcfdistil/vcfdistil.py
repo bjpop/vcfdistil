@@ -64,16 +64,47 @@ def parse_args():
                         help='Input VCF files')
     return parser.parse_args()
 
+def strip_quotes(text):
+    if text.startswith('"') or text.startswith("'"):
+        text = text[1:]
+    if text.endswith('"') or text.endswith("'"):
+        text = text[:-1]
+    return text
 
-metadata_regex = re.compile(r"\#\#(?P<key>[^=]*)=(?P<value>.*)$")
+
+def parse_metadata_record(record):
+    if record.startswith('<') and record.endswith('>'):
+        metadata_record_dict = {}
+        no_brackets = record[1:-1]
+        fields = no_brackets.split(',')
+        for field in fields:
+            key_value = field.split('=')
+            if len(key_value) == 2:
+                key, value = key_value[:2]
+                unquoted_value = strip_quotes(value)
+                metadata_record_dict[key] = unquoted_value 
+        return metadata_record_dict 
+    else:
+        return None
+
+
+metadata_regex = re.compile(r"\#\#(?P<name>[^=]*)=(?P<record>.*)$")
 
 
 def parse_metadata(metadata_dict, row):
     match = re.match(metadata_regex, row)
     if match is not None:
-        key = match.group('key')
-        value = match.group('value')
-        metadata_dict[key] = value
+        name = match.group('name')
+        record = match.group('record')
+        metadata_record = parse_metadata_record(record)
+        if metadata_record is not None:
+            if name not in metadata_dict:
+                metadata_dict[name] = {}
+            if 'ID' in metadata_record:
+                this_id = metadata_record['ID']
+                metadata_dict[name][this_id] = metadata_record
+        else:
+            metadata_dict[name] = record
 
 
 def read_metadata(file):
@@ -92,7 +123,6 @@ def parse_header(row):
     '''returns the sample ids, if they are present'''
     fields = row.split('\t')
     num_mandatory = len(mandatory_header_fields)
-    print(fields[:num_mandatory])
     if fields[:num_mandatory] == mandatory_header_fields:
         remaining_fields = fields[num_mandatory:]
         if len(remaining_fields) > 0 and remaining_fields[0] == "FORMAT":
@@ -121,7 +151,7 @@ def process_vcf_file(file):
     print((metadata, num_metadata_rows))
     sample_ids = read_header(islice(header_iter, num_metadata_rows, None, None))
     print(sample_ids)
-    process_variants(islice(variants_iter, num_metadata_rows + 1, None, None))
+    #process_variants(islice(variants_iter, num_metadata_rows + 1, None, None))
 
 
 def process_files(options):

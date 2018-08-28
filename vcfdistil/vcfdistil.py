@@ -57,12 +57,17 @@ def parse_args():
                         metavar='LOG_FILE',
                         type=str,
                         help='record program progress in LOG_FILE')
+    parser.add_argument('--filter',
+                        metavar='FILTER',
+                        type=str,
+                        help='file name of Python filter code')
     parser.add_argument('vcf_files',
                         nargs='*',
                         metavar='VCF_FILE',
                         type=str,
                         help='Input VCF files')
     return parser.parse_args()
+
 
 def strip_quotes(text):
     if text.startswith('"') or text.startswith("'"):
@@ -139,22 +144,56 @@ def read_header(file):
     return None
 
 
+class Record(object):
+    def __init__(self, chrom, pos, id, ref, alt, qual, filter, info, format=None, genotypes=None):
+        self.chrom = chrom
+        self.pos = pos
+        self.id = id
+        self.ref = ref
+        self.alt = alt
+        self.qual = qual
+        self.filter = filter
+        self.info = info
+        self.format = format
+        self.genotypes = genotypes 
+
+
+    def __str__(self):
+        fields = [self.chrom, self.pos, self.id, self.ref, self.alt, self.qual]
+        if self.filter is not None:
+            fields.append(self.filter)
+        if self.genotypes is not None:
+            fields.extend(self.genotypes)
+        return '\t'.join(fields)
+
+
+NUM_MANDATORY_RECORD_FIELDS = 8
+
+
 def process_variants(file):
     for row in file:
-        row = row.split()
-        print(row)
+        row = row.strip()
+        fields = row.split('\t')
+        if len(fields) >= NUM_MANDATORY_RECORD_FIELDS:
+            chrom, pos, id, ref, alt, qual, filter, info = fields[:NUM_MANDATORY_RECORD_FIELDS]
+            format = None
+            genotypes = None
+            if len(fields) >= NUM_MANDATORY_RECORD_FIELDS + 1:
+                format = fields[NUM_MANDATORY_RECORD_FIELDS]
+                genotypes = fields[NUM_MANDATORY_RECORD_FIELDS + 1:]
+            yield Record(chrom, pos, id, ref, alt, qual, filter, info, format, genotypes)
 
 
-def process_vcf_file(file):
+def process_vcf_file(file, record_filter):
     metadata_iter, header_iter, variants_iter = tee(file, 3)
     metadata, num_metadata_rows = read_metadata(metadata_iter)
-    print((metadata, num_metadata_rows))
     sample_ids = read_header(islice(header_iter, num_metadata_rows, None, None))
-    print(sample_ids)
-    #process_variants(islice(variants_iter, num_metadata_rows + 1, None, None))
+    for record in process_variants(islice(variants_iter, num_metadata_rows + 1, None, None)):
+        for filtered_record in record_filter(metadata, sample_ids, record):
+            print(filtered_record)
 
 
-def process_files(options):
+def process_files(options, record_filter):
     '''
     '''
     for vcf_filename in options.vcf_files:
@@ -165,7 +204,7 @@ def process_files(options):
             exit_with_error(str(exception), EXIT_FILE_IO_ERROR)
         else:
             with vcf_file:
-                process_vcf_file(vcf_file)
+                process_vcf_file(vcf_file, record_filter)
 
 
 def init_logging(log_filename):
@@ -190,11 +229,36 @@ def init_logging(log_filename):
         logging.info('command line: %s', ' '.join(sys.argv))
 
 
+def identity_filter(_metadata, _sample_ids, x):
+    yield x
+
+
+def get_custom_filter(options):
+    # default filter is the identity function,
+    # will include all rows in the output
+    # WARNING: this code execs arbitrary Python code. Do not use this in
+    # an untrusted environment, such as a web application!
+    custom_filter = identity_filter 
+    if options.filter:
+        try:
+            with open(options.filter) as custom_filter_file:
+                this_locals = {}
+                contents = custom_filter_file.read()
+                exec(contents, globals(), this_locals)
+                if 'filter' in this_locals:
+                    custom_filter = this_locals['filter']
+        except Exception as e:
+            print("Error when loading custom filter: {}".format(e))
+            exit(1)
+    return custom_filter
+
+
 def main():
     "Orchestrate the execution of the program"
     options = parse_args()
+    record_filter = get_custom_filter(options)
     init_logging(options.log)
-    process_files(options)
+    process_files(options, record_filter)
 
 
 # If this script is run from the command line then call the main function.

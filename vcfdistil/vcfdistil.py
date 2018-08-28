@@ -11,7 +11,6 @@ Portability : POSIX
 from argparse import ArgumentParser
 import sys
 import logging
-from itertools import takewhile, tee, islice
 import re
 import pkg_resources
 
@@ -114,11 +113,14 @@ def parse_metadata(metadata_dict, row):
 
 def read_metadata(file):
     metadata_dict = {}
-    num_metadata_rows = 0
-    for metadata_row in takewhile(lambda x: x.startswith('##'), file):
-        parse_metadata(metadata_dict, metadata_row)
-        num_metadata_rows += 1
-    return metadata_dict, num_metadata_rows
+    next_line = None
+    for line in file: 
+        if line.startswith('##'):
+            parse_metadata(metadata_dict, line)
+        else:
+            next_line = line
+            break
+    return metadata_dict, next_line 
 
 
 mandatory_header_fields = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"]
@@ -138,10 +140,11 @@ def parse_header(row):
     return None
 
 
-def read_header(file):
-    for header_row in takewhile(lambda x: x.startswith('#CHROM'), file):
-        return parse_header(header_row.strip())
-    return None
+def read_header(line):
+    if line.startswith('#CHROM'):
+        return parse_header(line.strip())
+    else:
+        return None
 
 
 class Record(object):
@@ -206,12 +209,11 @@ def process_variants(file):
 
 
 def process_vcf_file(file, begin, end, record_filter):
-    metadata_iter, header_iter, variants_iter = tee(file, 3)
-    metadata, num_metadata_rows = read_metadata(metadata_iter)
-    sample_ids = read_header(islice(header_iter, num_metadata_rows, None, None))
+    metadata, next_line = read_metadata(file)
+    sample_ids = read_header(next_line)
     for item in begin(metadata, sample_ids):
         print(item)
-    for record in process_variants(islice(variants_iter, num_metadata_rows + 1, None, None)):
+    for record in process_variants(file):
         for filtered_record in record_filter(record, metadata, sample_ids):
             print(filtered_record)
     for item in end(metadata, sample_ids):

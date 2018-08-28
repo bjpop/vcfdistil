@@ -236,11 +236,11 @@ def identity_filter(x, _metadata, _sample_ids):
 
 
 def null_begin(_metadata, _sample_ids):
-    return None
+    return iter(())
 
 
 def null_end(_metadata, _sample_ids):
-    return None
+    return iter(())
 
 
 def get_custom_functions(options):

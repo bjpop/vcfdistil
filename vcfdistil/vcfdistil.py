@@ -62,6 +62,7 @@ def parse_args():
                         type=str,
                         help='file name of Python filter code')
     parser.add_argument('vcf_file',
+                        nargs='?',
                         metavar='VCF_FILE',
                         type=str,
                         help='Input VCF file')
@@ -144,6 +145,10 @@ def read_header(file):
 
 
 class Record(object):
+    '''
+    info should be a dictionary
+    genotypes, if present, should be a list
+    '''
     def __init__(self, chrom, pos, id, ref, alt, qual, filter, info, format=None, genotypes=None):
         self.chrom = chrom
         self.pos = pos
@@ -165,6 +170,22 @@ class Record(object):
             fields.extend(self.genotypes)
         return '\t'.join(fields)
 
+# INFO fields are encoded as a semicolon-separated series of short
+# keys with optional values in the format: <key>=<data>[,data].
+
+def parse_info(text):
+    info_dict = {}
+    fields = text.split(';')
+    for field in fields:
+        key_value = field.split('=')
+        if len(key_value) == 2:
+            key, value = key_value[:2]
+            if ',' in value:
+                value = value.split(',')
+            info_dict[key] = value
+    return info_dict
+
+
 
 NUM_MANDATORY_RECORD_FIELDS = 8
 
@@ -180,7 +201,8 @@ def process_variants(file):
             if len(fields) >= NUM_MANDATORY_RECORD_FIELDS + 1:
                 format = fields[NUM_MANDATORY_RECORD_FIELDS]
                 genotypes = fields[NUM_MANDATORY_RECORD_FIELDS + 1:]
-            yield Record(chrom, pos, id, ref, alt, qual, filter, info, format, genotypes)
+            info_dict = parse_info(info)
+            yield Record(chrom, pos, id, ref, alt, qual, filter, info_dict, format, genotypes)
 
 
 def process_vcf_file(file, begin, end, record_filter):
@@ -199,14 +221,17 @@ def process_vcf_file(file, begin, end, record_filter):
 def process_file(options, begin, end, record_filter):
     '''
     '''
-    logging.info("Processing VCF file from %s", options.vcf_file)
-    try:
-        vcf_file = open(options.vcf_file)
-    except IOError as exception:
-        exit_with_error(str(exception), EXIT_FILE_IO_ERROR)
+    if options.vcf_file is not None:
+        logging.info("Processing VCF file from %s", options.vcf_file)
+        try:
+            vcf_file = open(options.vcf_file)
+        except IOError as exception:
+            exit_with_error(str(exception), EXIT_FILE_IO_ERROR)
+        else:
+            with vcf_file:
+                process_vcf_file(vcf_file, begin, end, record_filter)
     else:
-        with vcf_file:
-            process_vcf_file(vcf_file, begin, end, record_filter)
+        process_vcf_file(sys.stdin, begin, end, record_filter)
 
 
 def init_logging(log_filename):
